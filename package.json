@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "dependencies": {
+    "imapflow": "^1.0.162",
+    "mailparser": "^3.7.1",
+    "telegraf": "^4.16.3"
+  }
+}

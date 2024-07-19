@@ -1,0 +1,4 @@
+node_modules
+data/*
+accounts.js
+test*.js
