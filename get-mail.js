@@ -1,6 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { parseMail } from './parse-mail.js';
-import { MailLogger as mailLogger } from './utils.js';
+import { MailLogger as mailLogger, DateFormat } from './utils.js';
+
 
 
 async function sleep(ms) {
@@ -32,6 +33,7 @@ export class MailClient {
     this.name = `${account.name}_${account.mailbox}`;
     this.mailbox = account.mailbox;
     this.trashMailbox = account.trash || 'Trash';
+    this.readlaterMailbox = account.readlater || 'read-later';
     this.client = newClient(this.account);
   }
 
@@ -79,7 +81,10 @@ export class MailClient {
   }
   
   async fetchAndSendMail(bot) {
-    const msgs = await this.client.search({ recent: true, seen: false }, {uid: true});
+    // recent flag not work for gmail, so we set a readlater mailbox to store the unread mails
+    // (the unread means unsetting the seen flag)
+    // so there we can fetch the unseen mails
+    const msgs = await this.client.search({ seen: false }, {uid: true});
     mailLogger(this.name, `Receive "${msgs.length}" new messages`);
 
     for (const msg_id of msgs) {
@@ -89,8 +94,21 @@ export class MailClient {
 
       parseMail(msg)
         .then(mail => bot.sendMail({...mail, mailbox: this.mailbox, server: this.name}))
-        .catch(err => mailLogger(this.name, `Parse mail error: ${err}`));
+        .catch(err => {
+          mailLogger(this.name, `Parse mail error: ${err}`);
+          bot.sendMail({
+            subject: msg.envelope.subject + "(Body Parse Error)", 
+            from: msg.envelope.from.reduce((acc, cur) => acc + cur.address + " ", ""), 
+            to: msg.envelope.to.reduce((acc, cur) => acc + cur.address + " ", ""), 
+            uid: msg.uid,
+            md5: "body-parsed-error",
+            date: DateFormat.format(msg.envelope.date),
+            mailbox: this.mailbox, 
+            server: this.name,
+          });
+        });
 
+      // by default, mark all fetched mail as seen
       const status = await this.client.messageFlagsAdd([msg.uid], ['\\Seen'], { uid: true });
       mailLogger(this.name, `Marked mail ${msg.uid} as seen ${status ? "successful" : "failed"}`)
     };
@@ -104,7 +122,9 @@ export class MailClient {
 
   // mark the message as unread
   async markMailAsUnread(msgId) {
-      await this.client.messageFlagsRemove([msgId], ['\\Seen'], { uid: true });
+      //await this.client.messageFlagsRemove([msgId], ['\\Seen'], { uid: true });
+    // unread mail will be moved to read-later mailbox
+    await this.client.messageMove([msgId], this.readlaterMailbox, { uid: true });
   }
 }
 
